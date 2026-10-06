@@ -176,6 +176,13 @@ goodix_verify_ssm_handler (FpiSsm   *ssm,
       break;
 
     case GOODIX_VERIFY_CAPTURE:
+      if (g_cancellable_is_cancelled (self->cancel))
+        {
+          fpi_ssm_mark_failed (ssm, g_error_new_literal (G_IO_ERROR,
+                              G_IO_ERROR_CANCELLED, "Authentication cancelled"));
+          break;
+        }
+      self->auth_capture_attempts++;
       goodix_scan_start_capture_subsm (ssm, dev);
       break;
 
@@ -188,9 +195,20 @@ goodix_verify_ssm_handler (FpiSsm   *ssm,
         /* Extract SIFT features once for both identify and verify paths */
         probe_info = goodix_match_extract (self->captured_image);
         keypoints = goodix_match_keypoints_count (probe_info);
+        fp_dbg ("Capture quality: %d keypoints, %.1f%% clipped pixels",
+                keypoints, self->captured_clipped_fraction * 100.0);
 
         if (keypoints < GOODIX_MIN_CAPTURE_KEYPOINTS)
           {
+            if (self->auth_capture_attempts < 3)
+              {
+                fp_dbg ("Retrying low-quality capture within press (%u/3)",
+                        self->auth_capture_attempts);
+                goodix_match_free_info (probe_info);
+                g_clear_pointer (&self->captured_image, g_free);
+                fpi_ssm_jump_to_state_delayed (ssm, GOODIX_VERIFY_CAPTURE, 150);
+                return;
+              }
             if (action == FPI_DEVICE_ACTION_IDENTIFY)
               {
                 goodix_queue_identify_report (self, NULL,
@@ -414,6 +432,16 @@ goodix_verify_ssm_handler (FpiSsm   *ssm,
         goodix_match_free_info (probe_info);
         g_clear_pointer (&self->captured_image, g_free);
 
+        if (self->verify_wait_finger_up && self->auth_capture_attempts < 3)
+          {
+            fp_dbg ("Retrying unmatched capture within press (%u/3)",
+                    self->auth_capture_attempts);
+            goodix_clear_pending_result_report (self);
+            self->verify_wait_finger_up = FALSE;
+            fpi_ssm_jump_to_state_delayed (ssm, GOODIX_VERIFY_CAPTURE, 150);
+            return;
+          }
+
         if (self->verify_wait_finger_up)
           goodix_flush_pending_result_report (dev);
 
@@ -497,6 +525,7 @@ goodix_auth_start (FpDevice *dev)
 
   g_clear_object (&self->cancel);
   self->cancel = g_cancellable_new ();
+  self->auth_capture_attempts = 0;
   goodix_clear_pending_result_report (self);
   self->action_result_reported = FALSE;
   self->verify_wait_finger_up = FALSE;

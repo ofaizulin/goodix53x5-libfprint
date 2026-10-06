@@ -42,7 +42,9 @@
 #define GOODIX_FDT_BASE_LEN 24
 
 /* Enroll stages */
-#define GOODIX_ENROLL_SAMPLES 8
+/* The small sensor captures only a patch of the fingertip. Store more
+ * placements without relaxing the match threshold. */
+#define GOODIX_ENROLL_SAMPLES 24
 
 /* SIGFM (SIFT-based) matching parameters.
  * This gate is tuned for TX-off p3 preprocessing plus mutual SIGFM matching;
@@ -173,6 +175,7 @@ struct _FpiDeviceGoodix53x5
   guint16 *reference_image; /* native 108x88 12-bit TX-off no-finger frame */
   guint8  *captured_image;  /* native 108x88 8-bit processed frame */
   double   captured_clipped_fraction; /* non-contact (clipped) pixel fraction */
+  guint    auth_capture_attempts; /* bounded capture burst during one press */
 
   /* Enrollment tracking */
   GPtrArray *enroll_features; /* array of GBytes* serialized SIGFM features */

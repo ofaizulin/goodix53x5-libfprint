@@ -11,3 +11,12 @@ results/
 tools/
 AGENTS.md
 *.pkg.tar.zst
+
+# Private fingerprint diagnostics and serialized enrollment data
+captures/
+current-captures/
+*-raw.pgm
+*-reference.pgm
+*-processed.pgm
+current-print
+*.log

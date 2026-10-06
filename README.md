@@ -26,7 +26,9 @@ The sensor provides raw 12-bit capacitive images encrypted with a TLS-like proto
 
 Fingerprint matching uses SIFT keypoints with CLAHE preprocessing, Lowe's ratio test, mutual nearest-neighbor filtering, and pairwise geometric verification. The driver uses this SIGFM path instead of libfprint's usual minutiae matcher for the small 108x88 captures.
 
-The current preprocessing pipeline is shown below:
+Local reliability changes, upgrade requirements, and validation limits are described in [LOCAL-CHANGES.md](LOCAL-CHANGES.md).
+
+The upstream preprocessing pipeline is shown below; this fork additionally smooths the image before CLAHE/SIFT:
 
 <img src="images/goodix53x5-preprocessing-pipeline.png?v=20260610" alt="Goodix 53x5 preprocessing pipeline" width="1000">
 
@@ -200,7 +202,7 @@ GOODIX_LIBFPRINT_REF=v1.94.10 ./scripts/build-local.sh
 After installation, use your desktop environment's fingerprint settings (GNOME, KDE, etc.) or the command line:
 
 ```bash
-# Enroll a finger (8 samples required)
+# Enroll a finger (24 samples required)
 fprintd-enroll
 
 # Verify
@@ -229,7 +231,7 @@ fprintd-enroll
 - **Clipped non-contact areas** at raw value `4095` are excluded from normalization and filled from the unclipped interior's 99th-percentile residual. This renders non-contact regions flat white instead of preserving the inverted reference grid.
 - **Enrollment coverage** rejects samples with more than 10% clipped/non-contact pixels and asks for another touch, so stored templates keep useful ridge coverage.
 - **SIGFM matching** uses OpenCV SIFT features with CLAHE contrast enhancement, Lowe's ratio test, mutual nearest-neighbor filtering, and pairwise geometric verification. Verify/identify accept a print when the best enrolled-sample score is `>= 150` (`GOODIX_SIGFM_BEST_MIN`).
-- **8 enrollment samples** are stored as serialized SIGFM feature templates, not raw or processed images. If you enrolled with an older preprocessing/template format, re-enroll your fingers after installing this version.
+- **24 enrollment samples** are stored as serialized SIGFM feature templates, not raw or processed images. If you enrolled with an older preprocessing/template format, re-enroll your fingers after installing this version.
 
 ## Matching accuracy and security
 

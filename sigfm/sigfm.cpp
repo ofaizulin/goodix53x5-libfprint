@@ -193,6 +193,10 @@ SigfmImgInfo* sigfm_extract(const SigfmPix* pix, int width, int height)
         img.create(height, width, CV_8UC1);
         std::memcpy(img.data, pix, (std::size_t) width * (std::size_t) height);
 
+        /* Suppress fine sensor noise before CLAHE amplifies local contrast.
+         * Keep ridge-scale structure and the existing matcher unchanged. */
+        cv::GaussianBlur(img, img, cv::Size(0, 0), 1.2);
+
         /* Apply CLAHE to enhance local contrast for better SIFT detection */
         auto clahe = cv::createCLAHE(4.0, cv::Size(4, 4));
         cv::Mat enhanced;

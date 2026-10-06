@@ -28,6 +28,66 @@
 #include "goodix53x5-scan.h"
 
 #include <string.h>
+#include <glib/gstdio.h>
+
+/* Opt-in local diagnostics. Never write images during normal authentication. */
+static void
+goodix_debug_save_image (const gchar *directory,
+                        gint64 stamp,
+                        const gchar *kind,
+                        const guint16 *raw,
+                        const guint8 *processed)
+{
+  g_autofree gchar *path = NULL;
+  g_autofree gchar *header = NULL;
+  g_autoptr(GByteArray) data = g_byte_array_new ();
+  g_autoptr(GError) error = NULL;
+
+  path = g_strdup_printf ("%s/%" G_GINT64_FORMAT "-%s.pgm", directory, stamp, kind);
+  header = g_strdup_printf ("P5\n%d %d\n%d\n", GOODIX_SENSOR_WIDTH,
+                            GOODIX_SENSOR_HEIGHT, raw != NULL ? 65535 : 255);
+  g_byte_array_append (data, (const guint8 *) header, strlen (header));
+  if (raw != NULL)
+    {
+      for (guint i = 0; i < GOODIX_SENSOR_PIXELS; i++)
+        {
+          guint16 pixel = GUINT16_TO_BE (raw[i]);
+          g_byte_array_append (data, (const guint8 *) &pixel, sizeof pixel);
+        }
+    }
+  else
+    g_byte_array_append (data, processed, GOODIX_SENSOR_PIXELS);
+
+  if (!g_file_set_contents_full (path, (const gchar *) data->data, data->len,
+                                 G_FILE_SET_CONTENTS_CONSISTENT, 0600, &error))
+    fp_warn ("Diagnostic image write failed: %s", error->message);
+}
+
+static void
+goodix_debug_save_capture (FpDevice *dev,
+                          const guint16 *raw,
+                          const guint16 *reference,
+                          const guint8 *processed)
+{
+  const gchar *directory = g_getenv ("GOODIX_DEBUG_CAPTURE_DIR");
+  static guint saved;
+  gint64 stamp;
+
+  if (directory == NULL || directory[0] == '\0' || saved >= 32)
+    return;
+  if (g_mkdir_with_parents (directory, 0700) != 0)
+    {
+      fp_warn ("Cannot create diagnostic image directory");
+      return;
+    }
+  saved++;
+  stamp = g_get_real_time ();
+  goodix_debug_save_image (directory, stamp, "raw", raw, NULL);
+  goodix_debug_save_image (directory, stamp, "reference", reference, NULL);
+  goodix_debug_save_image (directory, stamp, "processed", NULL, processed);
+  fp_dbg ("Diagnostic capture %" G_GINT64_FORMAT " action %d", stamp,
+          fpi_device_get_current_action (dev));
+}
 
 /* Finger-wait SSM (awaiting finger down) */
 typedef enum {
@@ -353,10 +413,15 @@ goodix_capture_ssm_handler (FpiSsm   *ssm,
           img8 = goodix_device_image_to_8bit (img12, self->reference_image);
           self->captured_clipped_fraction =
             goodix_device_image_clipped_fraction (img12);
+          goodix_debug_save_capture (dev, img12, self->reference_image, img8);
 
           g_free (img12);
           g_free (decrypted);
-          g_clear_pointer (&self->reference_image, g_free);
+          /* Authentication can take a bounded burst during the same press.
+           * Reuse the no-finger reference until auth completion/cleanup. */
+          if (fpi_device_get_current_action (dev) != FPI_DEVICE_ACTION_VERIFY &&
+              fpi_device_get_current_action (dev) != FPI_DEVICE_ACTION_IDENTIFY)
+            g_clear_pointer (&self->reference_image, g_free);
 
           /* Store native 8-bit image for SIGFM matching */
           g_free (self->captured_image);
